@@ -50,7 +50,7 @@ android {
 }
 
 dependencies {
-    implementation ("androidx.compose.material:material-icons-extended:<latest_version>")
+    implementation ("androidx.compose.material:material-icons-extended:1.7.4")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation ("androidx.appcompat:appcompat:1.7.0")  // or the latest version
     implementation("androidx.core:core-ktx:1.13.1")

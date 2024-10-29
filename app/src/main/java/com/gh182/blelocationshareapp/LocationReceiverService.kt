@@ -115,7 +115,7 @@ class LocationReceiverService : Service() {
             Log.d("LocationReceiverService", "Received Location: ($latitude, $longitude), Altitude: $altitude, Accuracy: $accuracy")
 
             // Update notification and inject mock location
-            updateNotification("Location: $latitude, $longitude, Altitude: $altitude m, Accuracy: $accuracy m")
+            updateNotification("Location: ${latitude}, ${longitude},\naltitude: ${altitude}m (accuracy: ${accuracy}m)")
             injectMockLocation(latitude, longitude, altitude, accuracy)
         }
 

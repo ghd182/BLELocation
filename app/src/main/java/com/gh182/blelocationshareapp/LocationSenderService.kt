@@ -48,6 +48,13 @@ class LocationSenderService : Service() {
                     Manifest.permission.BLUETOOTH_ADVERTISE
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
+                // TODO: Consider calling
+                //    ActivityCompat#requestPermissions
+                // here to request the missing permissions, and then overriding
+                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                //                                          int[] grantResults)
+                // to handle the case where the user grants the permission. See the documentation
+                // for ActivityCompat#requestPermissions for more details.
                 Log.w("onDestroy","not able to stop advertising")
                 return
             }
@@ -79,7 +86,6 @@ class LocationSenderService : Service() {
 
 
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
-        Log.d("onStartCommand", "onStartCommand called")
         when (intent?.action) {
             ACTION_STOP_LOCATION_UPDATES -> {
                 stopLocationUpdates() // Stop location updates and release resources
@@ -149,7 +155,7 @@ class LocationSenderService : Service() {
     }
 
     private fun updateNotification(location: Location) {
-        val contentText = "Location: ${location.latitude}, ${location.longitude}, Altitude: ${location.altitude} m, Accuracy: ${location.accuracy} m"
+        val contentText = "Location: ${location.latitude}, ${location.longitude},\naltitude: ${location.altitude}m (accuracy: ${location.accuracy}m)"
         val notification = createNotification(contentText)
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(notificationId, notification)
