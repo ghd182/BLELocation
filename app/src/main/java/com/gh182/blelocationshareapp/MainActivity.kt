@@ -327,10 +327,10 @@ class MainActivity : ComponentActivity() {
                             startLocationSenderService()
                         } else {
                             if(!(isLocationValid()|| !useCustomLocation))
-                            errorMessageLocation = "Invalid location values. Please check inputs."
+                                errorMessageLocation = "Invalid location values. Please check inputs."
 
                             if(!(isPowerValid()||!useCustomPower))
-                                errorMessagePower = "Invalid location values. Please check inputs."
+                                errorMessagePower = "Invalid Power values. Please check inputs."
 
                         }
                     }
