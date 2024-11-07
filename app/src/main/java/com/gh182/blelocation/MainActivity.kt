@@ -1,6 +1,8 @@
 package com.gh182.blelocation
 
-
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
+import android.app.PendingIntent
 import android.content.Intent
 import androidx.compose.ui.Alignment
 import android.os.Bundle
@@ -22,11 +24,11 @@ import android.util.Log
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.KeyboardType
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.core.app.ActivityCompat
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 
 const val CHANNEL_ID = "ble_location_channel"
@@ -41,16 +44,13 @@ const val LOCATION_NOTIFICATION_ID = 1
 
 
 const val PREF_NAME = "BLELocationPrefs"
-const val PREF_KEY_ADVERTISING_STATE = "advertising_state"
+const val PREF_KEY_SENDING_STATE = "sending_state"
+const val PREF_KEY_RECEIVING_STATE = "receiving_state"
 
 
 
 
 class MainActivity : ComponentActivity() {
-    companion object {
-        const val PERMISSION_REQUEST_CODE = 100
-    }
-
     private val tag = "MainActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,41 +64,73 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveAdvertisingState(isAdvertising: Boolean) {
+    private fun saveButtonState(value: Boolean, prefKey: String) {
         val sharedPreferences = getSharedPreferences(PREF_NAME, MODE_PRIVATE)
         val editor = sharedPreferences.edit()
-        editor.putBoolean(PREF_KEY_ADVERTISING_STATE, isAdvertising)
+        editor.putBoolean(prefKey, value)
         editor.apply()  // Asynchronous commit
     }
 
 
 
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allPermissionsGranted = permissions.all { it.value == true }
+        if (allPermissionsGranted) {
+            startApp() // Proceed if all permissions are granted
+        } else {
+            showPermissionDeniedMessage() // Handle denied permissions
+        }
+    }
 
 
+
+
+
+
+
+
+    private fun showPermissionDeniedMessage() {
+        Toast.makeText(this, "Allow all permissions in app settings", Toast.LENGTH_LONG).show()
+        finish() // Close the app or you can navigate to another screen if needed
+    }
 
 
 
     // Function to check if all required permissions are granted
     private fun hasPermissions(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.BLUETOOTH_CONNECT
-                ) == PackageManager.PERMISSION_GRANTED
+        val requiredPermissions = arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        return requiredPermissions.all {
+            ActivityCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     // Function to request permissions
     private fun requestPermissions() {
-        ActivityCompat.requestPermissions(
-            this,
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionsLauncher.launch(
+                arrayOf(
+                    Manifest.permission.POST_NOTIFICATIONS,
+                )
+            )
+        }
+
+        requestPermissionsLauncher.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ),
-            PERMISSION_REQUEST_CODE
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.BLUETOOTH_PRIVILEGED
+            )
         )
     }
 
@@ -122,11 +154,13 @@ class MainActivity : ComponentActivity() {
 
     private fun startReceiving() {
         Log.d(tag, "startReceiving")
+        saveButtonState(true, PREF_KEY_RECEIVING_STATE)
         startService(Intent(this, BLEReceivingService::class.java))
         showLocationNotification()
     }
 
     private fun stopReceiving() {
+        saveButtonState(false, PREF_KEY_RECEIVING_STATE)
         Log.d(tag, "stopReceiving")
         stopService(Intent(this, BLEReceivingService::class.java))
         clearLocationNotification()
@@ -134,7 +168,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startSending(context: Context, location: Location, customLocationEnabled: Boolean, frequency: Int, advertiseMode: Int, advertisePower: Int) {
         Log.d(tag, "startSending")
-        saveAdvertisingState(true)
+        saveButtonState(true, PREF_KEY_SENDING_STATE)
         Log.d(tag, "startSending with freq: $frequency, custom location: $customLocationEnabled")
         Log.d(tag, "Sending with advertiseMode: $advertiseMode, advertisePower: $advertisePower")
 
@@ -155,7 +189,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopSending() {
-        saveAdvertisingState(false)
+        saveButtonState(false,PREF_KEY_SENDING_STATE)
         Log.d(tag, "stopSending")
         stopService(Intent(this, BLESendingService::class.java))
         clearLocationNotification()
@@ -174,11 +208,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showLocationNotification() {
+        // Create an intent to open the app
+        val intent = Intent(this, MainActivity::class.java).apply {
+            // This will bring the existing instance of the activity to the foreground if it exists
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+
+        // Create a PendingIntent to wrap the intent
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher_new_foreground)
             .setContentTitle("Location Update")
             .setContentText("Waiting for location...")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+//            .setContentIntent(pendingIntent)  // Set the intent that will fire when the user taps the notification
+            .setAutoCancel(true)  // Remove notification when tapped
             .build()
 
         if (ActivityCompat.checkSelfPermission(
@@ -225,7 +277,7 @@ class MainActivity : ComponentActivity() {
     ) {
         var mode by remember { mutableStateOf("Send") }
         var isRunning by remember { mutableStateOf(false) }
-        var frequency by remember { mutableStateOf(TextFieldValue("1000")) }
+        var frequency by remember { mutableStateOf(TextFieldValue("5000")) }
 
         var customLocationEnabled by remember { mutableStateOf(false) }
         var locationDetails by remember { mutableStateOf(LocationDetails()) }
@@ -265,38 +317,22 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("BLE Location Sender/Receiver", style = MaterialTheme.typography.titleLarge)
+                    // Header remains fixed
+                    Column(
+                        modifier = Modifier
+                            .padding(16.dp)
+                    ) {
+                        Text("BLE Location", style = MaterialTheme.typography.titleLarge)
+                        ModeTabs(mode, onModeChange = {
+                            if (!isTabDisabled) { // Prevent tab change when operation is running
+                                mode = it
+                            }
+                        }, isTabDisabled = isTabDisabled)
+                        FrequencyInput(frequency, { frequency = it }, isRunning)
+                    }
 
-                    ModeTabs(mode, onModeChange = {
-                        if (!isTabDisabled) { // Prevent tab change when operation is running
-                            mode = it
-                        }
-                    }, isTabDisabled = isTabDisabled)
-
-                    FrequencyInput(frequency) { frequency = it }
-
-                    if (mode == "Send") {
-                        CustomPowerToggle(customPowerEnabled, onToggle = { customPowerEnabled = it }, isRunning)
-
-                        // Dropdowns for power and mode only if custom power settings are enabled
-                        if (customPowerEnabled) {
-                            PowerModeSelection(
-                                advertiseMode = advertiseMode,
-                                advertisePower = advertisePower,
-                                onAdvertiseModeChange = { advertiseMode = it },
-                                onAdvertisePowerChange = { advertisePower = it }
-                            )
-                        }
-
-                        // Location settings
-                        CustomLocationToggle(customLocationEnabled, { customLocationEnabled = it }, isRunning)
-                        if (customLocationEnabled) {
-                            CustomLocationInput(locationDetails) { locationDetails = it }
-                        }
-
+                    if(mode == "Send"){
                         Button(
                             onClick = {
                                 isRunning = !isRunning
@@ -307,32 +343,72 @@ class MainActivity : ComponentActivity() {
                                     onStopSending()
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
                             enabled = isStartEnabled // Disable if frequency or location is invalid
                         ) {
                             Text(if (isRunning) "Stop Sending" else "Start Sending")
                         }
                     }
 
-                    // Actions for "Receive" mode
-                    if (mode == "Receive") {
-                        Button(
-                            onClick = {
-                                if (isRunning) {
-                                    onStopReceiving()
-                                } else {
-                                    onStartReceiving()
-                                }
-                                isRunning = !isRunning
-                                isTabDisabled = isRunning
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = isStartEnabled // Disable if frequency or location is invalid
+                    // Scrollable content starts here
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(if (isRunning) "Stop Receiving" else "Start Receiving")
+                            // Scrollable content for "Send" mode
+                            if (mode == "Send") {
+
+                                // Location settings
+                                item {
+                                    CustomLocationToggle(customLocationEnabled, { customLocationEnabled = it },  isRunning = isRunning)
+                                }
+
+                                if (customLocationEnabled) {
+                                    item {
+                                        CustomLocationInput(locationDetails, { locationDetails = it }, isRunning = isRunning)
+                                    }
+                                }
+
+                                item {
+                                    CustomPowerToggle(customPowerEnabled, onToggle = { customPowerEnabled = it },  isRunning = isRunning)
+                                }
+
+                                // Dropdowns for power and mode only if custom power settings are enabled
+                                if (customPowerEnabled) {
+                                    item {
+                                        PowerModeSelection(
+                                            advertiseMode = advertiseMode,
+                                            advertisePower = advertisePower,
+                                            onAdvertiseModeChange = { advertiseMode = it },
+                                            onAdvertisePowerChange = { advertisePower = it },
+                                            isRunning = isRunning // Pass isRunning to disable inputs
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Scrollable content for "Receive" mode
+                            if (mode == "Receive") {
+                                item {
+                                    Button(
+                                        onClick = {
+                                            if (isRunning) {
+                                                onStopReceiving()
+                                            } else {
+                                                onStartReceiving()
+                                            }
+                                            isRunning = !isRunning
+                                            isTabDisabled = isRunning
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = isStartEnabled // Disable if frequency or location is invalid
+                                    ) {
+                                        Text(if (isRunning) "Stop Receiving" else "Start Receiving")
+                                    }
+                                }
+                            }
                         }
                     }
-                }
             }
         )
     }
@@ -354,7 +430,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun FrequencyInput(frequency: TextFieldValue, onFrequencyChange: (TextFieldValue) -> Unit) {
+    fun FrequencyInput(frequency: TextFieldValue, onFrequencyChange: (TextFieldValue) -> Unit, isRunning: Boolean) {
         val isValid = frequency.text.toIntOrNull()?.let { it in 100..3600000 } == true
         Column {
             OutlinedTextField(
@@ -365,7 +441,8 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth(),
                 isError = !isValid,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                enabled = true
+                enabled = !isRunning // Disable the input if operation is running
+
             )
             if (!isValid) {
                 Text("Frequency must be integer between 100 and 3600000 ms", color = MaterialTheme.colorScheme.error)
@@ -381,7 +458,7 @@ class MainActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Use Custom Power Settings")
+            Text("Use Custom Power Settings", style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.weight(1f))
             Switch(
                 checked = enabled,
@@ -396,7 +473,8 @@ class MainActivity : ComponentActivity() {
         advertiseMode: Int,
         advertisePower: Int,
         onAdvertiseModeChange: (Int) -> Unit,
-        onAdvertisePowerChange: (Int) -> Unit
+        onAdvertisePowerChange: (Int) -> Unit,
+        isRunning: Boolean
     ) {
         // List for Advertise Mode options
         val advertiseModeOptions = listOf(
@@ -414,12 +492,13 @@ class MainActivity : ComponentActivity() {
         )
         Column {
             // Advertise Mode Radio Buttons
-            Text("Advertise Mode")
+            Text("Advertise Mode", style = MaterialTheme.typography.titleMedium)
             advertiseModeOptions.forEach { option ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
                         selected = advertiseMode == option.first,
-                        onClick = { onAdvertiseModeChange(option.first) }
+                        onClick = { onAdvertiseModeChange(option.first) },
+                        enabled = !isRunning
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(option.second)
@@ -429,13 +508,13 @@ class MainActivity : ComponentActivity() {
             Spacer(modifier = Modifier.height(16.dp)) // Space between the two sections
 
             // Advertise Power Radio Buttons
-            Text("Advertise Power")
+            Text("Advertise Power", style = MaterialTheme.typography.titleMedium)
             advertisePowerOptions.forEach { option ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
                         selected = advertisePower == option.first,
-                        onClick = { onAdvertisePowerChange(option.first) }
-                    )
+                        onClick = { onAdvertisePowerChange(option.first) },
+                        enabled = !isRunning)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(option.second)
                 }
@@ -457,7 +536,8 @@ class MainActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Use Custom Location")
+            Text("Use Custom Location", style = MaterialTheme.typography.titleLarge)
+
             Spacer(modifier = Modifier.weight(1f))
             Switch(
                 checked = enabled,
@@ -468,7 +548,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun CustomLocationInput(locationDetails: LocationDetails, onLocationChange: (LocationDetails) -> Unit) {
+    fun CustomLocationInput(locationDetails: LocationDetails, onLocationChange: (LocationDetails) -> Unit, isRunning: Boolean) {
         Column {
             CustomLocationField(
                 label = "Latitude",
@@ -477,7 +557,8 @@ class MainActivity : ComponentActivity() {
                     onLocationChange(locationDetails.copy(latitude = newValue))
                 },
                 isValid = isLatitudeValid(locationDetails.latitude),
-                errorMessage = "Latitude must be between -90 and 90"
+                errorMessage = "Latitude must be between -90 and 90",
+                isRunning = isRunning // Pass isRunning to disable inputs
             )
             CustomLocationField(
                 label = "Longitude",
@@ -486,7 +567,8 @@ class MainActivity : ComponentActivity() {
                     onLocationChange(locationDetails.copy(longitude = newValue))
                 },
                 isValid = isLongitudeValid(locationDetails.longitude),
-                errorMessage = "Longitude must be between -180 and 180"
+                errorMessage = "Longitude must be between -180 and 180",
+                isRunning = isRunning // Pass isRunning to disable inputs
             )
             CustomLocationField(
                 label = "Altitude (meters)",
@@ -495,7 +577,8 @@ class MainActivity : ComponentActivity() {
                     onLocationChange(locationDetails.copy(altitude = newValue))
                 },
                 isValid = isAltitudeValid(locationDetails.altitude),
-                errorMessage = "Altitude must be a valid number"
+                errorMessage = "Altitude must be a valid number",
+                isRunning = isRunning // Pass isRunning to disable inputs
             )
             CustomLocationField(
                 label = "Accuracy (meters)",
@@ -504,7 +587,8 @@ class MainActivity : ComponentActivity() {
                     onLocationChange(locationDetails.copy(accuracy = newValue))
                 },
                 isValid = isAccuracyValid(locationDetails.accuracy),
-                errorMessage = "Accuracy must be a positive number"
+                errorMessage = "Accuracy must be a positive number",
+                isRunning = isRunning // Pass isRunning to disable inputs
             )
         }
     }
@@ -516,7 +600,8 @@ class MainActivity : ComponentActivity() {
         value: String,
         onValueChange: (String) -> Unit,
         isValid: Boolean,
-        errorMessage: String
+        errorMessage: String,
+        isRunning: Boolean
     ) {
         OutlinedTextField(
             value = value,
@@ -526,6 +611,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.fillMaxWidth(),
             isError = !isValid,
             keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number),
+            enabled = !isRunning // Disable the input if operation is running
         )
         if (!isValid) {
             Text(errorMessage, color = MaterialTheme.colorScheme.error)

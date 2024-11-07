@@ -1,6 +1,7 @@
 package com.gh182.blelocation
 
 import android.Manifest
+import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
@@ -38,7 +39,7 @@ class BLEReceivingService : Service() {
             return
         }
         createNotificationChannel()
-        startForeground(1, createNotification("Listening for BLE advertisements..."))
+        startForeground(1, createNotification("Waiting for BLE Locations..."))
         startScanning()
     }
 
@@ -91,22 +92,39 @@ class BLEReceivingService : Service() {
     private fun injectMockLocation(latitude: Double, longitude: Double, altitude: Double, accuracy: Double) {
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
 
-        val mockLocation = Location(LocationManager.GPS_PROVIDER).apply {
-            this.latitude = latitude
-            this.longitude = longitude
-            this.altitude = altitude
-            this.accuracy = accuracy.toFloat()
-            this.time = System.currentTimeMillis()
-            this.elapsedRealtimeNanos = System.nanoTime()
+
+        // Ensure the GPS provider is disabled so real location is not used
+        try {
+            locationManager.removeUpdates{} // Stop receiving updates from other providers
+            // Disable GPS provider to prevent real GPS location
+            locationManager.setTestProviderEnabled(LocationManager.GPS_PROVIDER, false)
+
+            // Optionally, you can disable other location providers:
+//            locationManager.setTestProviderEnabled(LocationManager.NETWORK_PROVIDER, false)
+//            locationManager.setTestProviderEnabled(LocationManager.PASSIVE_PROVIDER, false)
+        } catch (e: SecurityException) {
+            Log.e("BLEReceivingService", "Failed to disable GPS provider: ${e.message}")
         }
 
         try {
             locationManager.addTestProvider(
                 LocationManager.GPS_PROVIDER,
-                false, false, false, false, true, true, true, android.location.provider.ProviderProperties.POWER_USAGE_LOW,
+                false, false, false, false, true, true, true,
+                android.location.provider.ProviderProperties.POWER_USAGE_LOW,
                 android.location.provider.ProviderProperties.ACCURACY_FINE
             )
             locationManager.setTestProviderEnabled(LocationManager.GPS_PROVIDER, true)
+
+
+
+            val mockLocation = Location(LocationManager.GPS_PROVIDER).apply {
+                this.latitude = latitude
+                this.longitude = longitude
+                this.altitude = altitude
+                this.accuracy = accuracy.toFloat()
+                this.time = System.currentTimeMillis()
+                this.elapsedRealtimeNanos = System.nanoTime()
+            }
             locationManager.setTestProviderLocation(LocationManager.GPS_PROVIDER, mockLocation)
 
             Log.d("BLEReceivingService", "Mock location set: $latitude, $longitude, Alt: $altitude, Acc: $accuracy")
@@ -116,16 +134,35 @@ class BLEReceivingService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(notificationChannelId, "BLE Scanner", NotificationManager.IMPORTANCE_DEFAULT)
+        val channel = NotificationChannel(notificationChannelId, "BLE Receiver", NotificationManager.IMPORTANCE_DEFAULT)
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
     }
 
     private fun createNotification(contentText: String): Notification {
+
+
+        // Create an intent to open the app
+        val intent = Intent(this, MainActivity::class.java).apply {
+            // This will bring the existing instance of the activity to the foreground if it exists
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        // Create a PendingIntent to wrap the intent
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Build the notification with the pending intent
         return NotificationCompat.Builder(this, notificationChannelId)
-            .setContentTitle("BLE Receiving Service")
+            .setContentTitle("BLE Receiving Location")
             .setContentText(contentText)
+//            .setContentIntent(pendingIntent)  // Set the intent that will fire when the user taps the notification
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setAutoCancel(true)
             .build()
     }
 

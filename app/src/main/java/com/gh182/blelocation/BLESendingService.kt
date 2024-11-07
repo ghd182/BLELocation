@@ -1,5 +1,7 @@
 package com.gh182.blelocation
 
+import android.app.PendingIntent
+import android.content.Intent
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -8,7 +10,6 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.*
 import android.util.Log
@@ -70,12 +71,23 @@ class BLESendingService : Service() {
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
                 Manifest.permission.POST_NOTIFICATIONS
             ).all {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
             }
         } else {
-            TODO("VERSION.SDK_INT < TIRAMISU")
+            listOf(
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ).all {
+                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+            }
         }
     }
 
@@ -323,10 +335,27 @@ class BLESendingService : Service() {
     }
 
     private fun updateNotification(content: String) {
+        // Create an intent to open the app
+        val intent = Intent(this, MainActivity::class.java).apply {
+            // This will bring the existing instance of the activity to the foreground if it exists
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+
+        // Create a PendingIntent to wrap the intent
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Build the notification with the pending intent
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("BLE Advertising")
             .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+//            .setContentIntent(pendingIntent)  // Set the intent that will fire when the user taps the notification
+            .setAutoCancel(true)  // Remove notification when tapped
             .build()
 
         getSystemService(NotificationManager::class.java)
