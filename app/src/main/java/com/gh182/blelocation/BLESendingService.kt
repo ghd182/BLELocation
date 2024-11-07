@@ -96,31 +96,31 @@ class BLESendingService : Service() {
         // use the frequency from the intent if provided, otherwise use the default
         val updateInterval = intent?.getIntExtra("frequency", DEFAULT_UPDATE_INTERVAL)
             ?: DEFAULT_UPDATE_INTERVAL
-        val advertisePower = intent?.getIntExtra("advertisePower", 0) ?: 0
-        val advertiseMode = intent?.getIntExtra("advertiseMode", 0) ?: 0
+        val bleOptionPower = intent?.getIntExtra("bleOptionPower", 0) ?: 0
+        val bleOptionMode = intent?.getIntExtra("bleOptionMode", 0) ?: 0
         Log.d(TAG, "Starting service with customLocationEnabled=$customLocationEnabled, updateInterval=$updateInterval")
-        Log.d(TAG, "advertisePower=$advertisePower, advertiseMode=$advertiseMode")
+        Log.d(TAG, "bleOptionPower=$bleOptionPower, bleOptionMode=$bleOptionMode")
 
         if (customLocationEnabled) {
-            handleCustomLocation(intent, updateInterval.toLong(), advertisePower, advertiseMode)
+            handleCustomLocation(intent, updateInterval.toLong(), bleOptionPower, bleOptionMode)
         } else {
-            startLocationUpdates(updateInterval.toLong(), advertisePower, advertiseMode)
+            startLocationUpdates(updateInterval.toLong(), bleOptionPower, bleOptionMode)
         }
 
         return START_STICKY
     }
 
-    private fun handleCustomLocation(intent: Intent?, updateInterval: Long, advertisePower: Int, advertiseMode: Int) {
+    private fun handleCustomLocation(intent: Intent?, updateInterval: Long, bleOptionPower: Int, bleOptionMode: Int) {
         val location = Location("custom").apply {
             latitude = intent?.getDoubleExtra("latitude", 0.0) ?: 0.0
             longitude = intent?.getDoubleExtra("longitude", 0.0) ?: 0.0
             altitude = intent?.getDoubleExtra("altitude", 0.0) ?: 0.0
             accuracy = intent?.getFloatExtra("accuracy", 0f) ?: 0f
         }
-        advertiseLocation(location, updateInterval, advertisePower, advertiseMode)
+        advertiseLocation(location, updateInterval, bleOptionPower, bleOptionMode)
     }
 
-    private fun startLocationUpdates(updateInterval: Long, advertisePower: Int, advertiseMode: Int) {
+    private fun startLocationUpdates(updateInterval: Long, bleOptionPower: Int, bleOptionMode: Int) {
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
 
         locationCallback = object : LocationCallback() {
@@ -131,10 +131,10 @@ class BLESendingService : Service() {
                         currentLocation = location
                         // Only start a new advertising cycle if we're not currently advertising
                         if (!isAdvertising.get()) {
-                            advertiseLocation(location, updateInterval, advertisePower, advertiseMode)
+                            advertiseLocation(location, updateInterval, bleOptionPower, bleOptionMode)
                         } else {
                             // Update the current advertising with new location
-                            updateAdvertising(location, updateInterval, advertisePower, advertiseMode)
+                            updateAdvertising(location, updateInterval, bleOptionPower, bleOptionMode)
                         }
                     }
                 }
@@ -160,7 +160,7 @@ class BLESendingService : Service() {
         }
     }
 
-    private fun updateAdvertising(location: Location, updateInterval: Long, advertisePower: Int, advertiseMode: Int) {
+    private fun updateAdvertising(location: Location, updateInterval: Long, bleOptionPower: Int, bleOptionMode: Int) {
         Log.d(TAG, "Updating advertising with new location")
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -183,7 +183,7 @@ class BLESendingService : Service() {
                 // ModeLowLatency: 2, ModeBalanced: 1, ModeLowPower: 0
 
 
-                val settings = createAdvertiseSettings(advertisePower, advertiseMode)
+                val settings = createAdvertiseSettings(bleOptionPower, bleOptionMode)
 
 
 
@@ -205,7 +205,7 @@ class BLESendingService : Service() {
                         isAdvertising.set(false)
                         // Use the most recent location when restarting
                         currentLocation?.let { latest ->
-                            advertiseLocation(latest, updateInterval, advertisePower, advertiseMode)
+                            advertiseLocation(latest, updateInterval, bleOptionPower, bleOptionMode)
                         }
                     }
                 }.also {
@@ -218,13 +218,13 @@ class BLESendingService : Service() {
                 stopCurrentAdvertising()
                 isAdvertising.set(false)
                 currentLocation?.let { latest ->
-                    advertiseLocation(latest, updateInterval, advertisePower, advertiseMode)
+                    advertiseLocation(latest, updateInterval, bleOptionPower, bleOptionMode)
                 }
             }
         }
     }
 
-    private fun advertiseLocation(location: Location, updateInterval: Long, advertisePower: Int, advertiseMode: Int) {
+    private fun advertiseLocation(location: Location, updateInterval: Long, bleOptionPower: Int, bleOptionMode: Int) {
         Log.d(TAG, "Starting advertising")
         if (!isAdvertising.compareAndSet(false, true)) {
             return
@@ -233,7 +233,7 @@ class BLESendingService : Service() {
         synchronized(advertisingLock) {
             currentLocation = location
             val advertiseData = createAdvertiseData(location)
-            val settings = createAdvertiseSettings(advertisePower, advertiseMode)
+            val settings = createAdvertiseSettings(bleOptionPower, bleOptionMode)
 
             try {
                 if (ActivityCompat.checkSelfPermission(
@@ -258,7 +258,7 @@ class BLESendingService : Service() {
                         isAdvertising.set(false)
                         // Use the most recent location when restarting
                         currentLocation?.let { latest ->
-                            advertiseLocation(latest, updateInterval, advertisePower, advertiseMode)
+                            advertiseLocation(latest, updateInterval, bleOptionPower, bleOptionMode)
                         }
                     }
                 }.also {
@@ -286,11 +286,11 @@ class BLESendingService : Service() {
             .build()
     }
 
-    private fun createAdvertiseSettings( advertisePower: Int, advertiseMode: Int) = AdvertiseSettings.Builder()
+    private fun createAdvertiseSettings( bleOptionPower: Int, bleOptionMode: Int) = AdvertiseSettings.Builder()
         // AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
-        .setAdvertiseMode(advertiseMode)
+        .setAdvertiseMode(bleOptionMode)
         // AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW
-        .setTxPowerLevel(advertisePower)
+        .setTxPowerLevel(bleOptionPower)
         .setConnectable(true)
         .build()
 

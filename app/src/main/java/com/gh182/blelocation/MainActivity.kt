@@ -141,10 +141,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             BLELocationTheme {
                 MainScreen(
-                    onStartReceiving = ::startReceiving,
+                    onStartReceiving = { scanMode -> startReceiving(this, scanMode) },
                     onStopReceiving = ::stopReceiving,
-                    onStartSending = { location, customLocationEnabled, frequency, advertiseMode, advertisePower ->
-                        startSending(this, location, customLocationEnabled, frequency, advertiseMode, advertisePower)
+                    onStartSending = { location, customLocationEnabled, frequency, bleOptionMode, bleOptionPower ->
+                        startSending(this, location, customLocationEnabled, frequency, bleOptionMode, bleOptionPower)
                     },
                     onStopSending = ::stopSending
                 )
@@ -152,7 +152,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startReceiving() {
+    private fun startReceiving(context: Context, scanMode: Int) {
+        val intent = Intent(context, BLEReceivingService::class.java)
+        intent.putExtra("scanMode", scanMode)  // Add scanMode to the intent
+        startService(intent)
+
         Log.d(tag, "startReceiving")
         saveButtonState(true, PREF_KEY_RECEIVING_STATE)
         startService(Intent(this, BLEReceivingService::class.java))
@@ -166,17 +170,17 @@ class MainActivity : ComponentActivity() {
         clearLocationNotification()
     }
 
-    private fun startSending(context: Context, location: Location, customLocationEnabled: Boolean, frequency: Int, advertiseMode: Int, advertisePower: Int) {
+    private fun startSending(context: Context, location: Location, customLocationEnabled: Boolean, frequency: Int, bleOptionMode: Int, bleOptionPower: Int) {
         Log.d(tag, "startSending")
         saveButtonState(true, PREF_KEY_SENDING_STATE)
         Log.d(tag, "startSending with freq: $frequency, custom location: $customLocationEnabled")
-        Log.d(tag, "Sending with advertiseMode: $advertiseMode, advertisePower: $advertisePower")
+        Log.d(tag, "Sending with bleOptionMode: $bleOptionMode, bleOptionPower: $bleOptionPower")
 
         val intent = Intent(context, BLESendingService::class.java).apply {
             putExtra("customLocationEnabled", customLocationEnabled)
             putExtra("frequency",frequency)
-            putExtra("advertiseMode", advertiseMode)
-            putExtra("advertisePower", advertisePower)
+            putExtra("bleOptionMode", bleOptionMode)
+            putExtra("bleOptionPower", bleOptionPower)
             if (customLocationEnabled) {
                 putExtra("latitude", location.latitude)
                 putExtra("longitude", location.longitude)
@@ -270,7 +274,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun MainScreen(
-        onStartReceiving: () -> Unit,
+        onStartReceiving: (Int) -> Unit,
         onStopReceiving: () -> Unit,
         onStartSending: (Location, Boolean, Int, Int, Int) -> Unit,
         onStopSending: () -> Unit
@@ -283,8 +287,8 @@ class MainActivity : ComponentActivity() {
         var locationDetails by remember { mutableStateOf(LocationDetails()) }
 
         var customPowerEnabled by remember { mutableStateOf(false) }
-        var advertiseMode by remember { mutableIntStateOf(1) } // Default: Balanced
-        var advertisePower by remember { mutableIntStateOf(1) } // Default: Low
+        var bleOptionMode by remember { mutableIntStateOf(1) } // Default: Balanced
+        var bleOptionPower by remember { mutableIntStateOf(1) } // Default: Low
 
         // Frequency validation
         val isFrequencyValid = frequency.text.toIntOrNull()?.let { it in 100..3600000 } == true
@@ -323,7 +327,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .padding(16.dp)
                     ) {
-                        Text("BLE Location", style = MaterialTheme.typography.titleLarge)
+                        Text("BLE Location", style = MaterialTheme.typography.titleLarge, modifier = Modifier.align(Alignment.CenterHorizontally),color = MaterialTheme.colorScheme.primary)
                         ModeTabs(mode, onModeChange = {
                             if (!isTabDisabled) { // Prevent tab change when operation is running
                                 mode = it
@@ -338,77 +342,92 @@ class MainActivity : ComponentActivity() {
                                 isRunning = !isRunning
                                 isTabDisabled = isRunning
                                 if (isRunning) {
-                                    onStartSending(locationDetails.toLocation(), customLocationEnabled, frequency.text.toInt(), advertiseMode, advertisePower)
+                                    onStartSending(locationDetails.toLocation(), customLocationEnabled, frequency.text.toInt(), bleOptionMode, bleOptionPower)
                                 } else {
                                     onStopSending()
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp,0.dp),
                             enabled = isStartEnabled // Disable if frequency or location is invalid
                         ) {
-                            Text(if (isRunning) "Stop Sending" else "Start Sending")
+                            Text(if (isRunning) "Stop Sending" else "Start Sending", style = MaterialTheme.typography.titleMedium)
                         }
                     }
+
+
+                    if(mode == "Receive"){
+                        Button(
+                            onClick = {
+                                if (isRunning) {
+                                    onStopReceiving()
+                                } else {
+                                    onStartReceiving(1)
+                                }
+                                isRunning = !isRunning
+                                isTabDisabled = isRunning
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(16.dp,0.dp),
+                            enabled = isStartEnabled // Disable if frequency or location is invalid
+                        ) {
+                            Text(if (isRunning) "Stop Receiving" else "Start Receiving", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+
+
+
+
+
+
 
                     // Scrollable content starts here
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Scrollable content for "Send" mode
-                            if (mode == "Send") {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item{
+                            HorizontalDivider(modifier = Modifier.height(16.dp))
+                            CustomPowerToggle(customPowerEnabled, onToggle = { customPowerEnabled = it },  isRunning = isRunning)
 
-                                // Location settings
-                                item {
-                                    CustomLocationToggle(customLocationEnabled, { customLocationEnabled = it },  isRunning = isRunning)
-                                }
 
-                                if (customLocationEnabled) {
-                                    item {
-                                        CustomLocationInput(locationDetails, { locationDetails = it }, isRunning = isRunning)
-                                    }
-                                }
+                            // Dropdowns for power and mode only if custom power settings are enabled
+                            if (customPowerEnabled) {
+                                PowerModeSelection(
+                                    bleOptionMode = bleOptionMode,
+                                    bleOptionPower = bleOptionPower,
+                                    onAdvertiseModeChange = { bleOptionMode = it },
+                                    onbleOptionPowerChange = { bleOptionPower = it },
+                                    isRunning = isRunning // Pass isRunning to disable inputs
+                                )
+                            }
+                        }
+                        // Scrollable content for "Send" mode
+                        if (mode == "Send") {
 
-                                item {
-                                    CustomPowerToggle(customPowerEnabled, onToggle = { customPowerEnabled = it },  isRunning = isRunning)
-                                }
-
-                                // Dropdowns for power and mode only if custom power settings are enabled
-                                if (customPowerEnabled) {
-                                    item {
-                                        PowerModeSelection(
-                                            advertiseMode = advertiseMode,
-                                            advertisePower = advertisePower,
-                                            onAdvertiseModeChange = { advertiseMode = it },
-                                            onAdvertisePowerChange = { advertisePower = it },
-                                            isRunning = isRunning // Pass isRunning to disable inputs
-                                        )
-                                    }
-                                }
+                            // Location settings
+                            item {
+                                HorizontalDivider(modifier = Modifier.height(16.dp))
+                                CustomLocationToggle(customLocationEnabled, { customLocationEnabled = it },  isRunning = isRunning)
                             }
 
-                            // Scrollable content for "Receive" mode
-                            if (mode == "Receive") {
+                            if (customLocationEnabled) {
                                 item {
-                                    Button(
-                                        onClick = {
-                                            if (isRunning) {
-                                                onStopReceiving()
-                                            } else {
-                                                onStartReceiving()
-                                            }
-                                            isRunning = !isRunning
-                                            isTabDisabled = isRunning
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        enabled = isStartEnabled // Disable if frequency or location is invalid
-                                    ) {
-                                        Text(if (isRunning) "Stop Receiving" else "Start Receiving")
-                                    }
+                                    CustomLocationInput(locationDetails, { locationDetails = it }, isRunning = isRunning)
                                 }
                             }
                         }
+
+                        // Scrollable content for "Receive" mode
+                        if (mode == "Receive") {
+                            item {
+
+                            }
+                        }
                     }
+                }
             }
         )
     }
@@ -420,7 +439,7 @@ class MainActivity : ComponentActivity() {
         TabRow(selectedTabIndex = tabs.indexOf(selectedMode)) {
             tabs.forEach { tab ->
                 Tab(
-                    text = { Text(tab) },
+                    text = { Text(tab, style = MaterialTheme.typography.titleMedium) },
                     selected = selectedMode == tab,
                     onClick = { if (!isTabDisabled) onModeChange(tab) },
                     enabled = !isTabDisabled // Disable the tab if operation is running
@@ -470,10 +489,10 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun PowerModeSelection(
-        advertiseMode: Int,
-        advertisePower: Int,
+        bleOptionMode: Int,
+        bleOptionPower: Int,
         onAdvertiseModeChange: (Int) -> Unit,
-        onAdvertisePowerChange: (Int) -> Unit,
+        onbleOptionPowerChange: (Int) -> Unit,
         isRunning: Boolean
     ) {
         // List for Advertise Mode options
@@ -484,7 +503,7 @@ class MainActivity : ComponentActivity() {
         )
 
         // List for Advertise Power options
-        val advertisePowerOptions = listOf(
+        val bleOptionPowerOptions = listOf(
             0 to "Ultra Low",  // 0 is the value for Ultra Low
             1 to "Low",        // 1 is the value for Low
             2 to "Medium",     // 2 is the value for Medium
@@ -492,11 +511,11 @@ class MainActivity : ComponentActivity() {
         )
         Column {
             // Advertise Mode Radio Buttons
-            Text("Advertise Mode", style = MaterialTheme.typography.titleMedium)
+            Text("Bluetooth Mode", style = MaterialTheme.typography.titleMedium)
             advertiseModeOptions.forEach { option ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
-                        selected = advertiseMode == option.first,
+                        selected = bleOptionMode == option.first,
                         onClick = { onAdvertiseModeChange(option.first) },
                         enabled = !isRunning
                     )
@@ -504,16 +523,16 @@ class MainActivity : ComponentActivity() {
                     Text(option.second)
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp)) // Space between the two sections
+            HorizontalDivider(modifier = Modifier.height(16.dp))
+            //Spacer(modifier = Modifier.height(16.dp)) // Space between the two sections
 
             // Advertise Power Radio Buttons
-            Text("Advertise Power", style = MaterialTheme.typography.titleMedium)
-            advertisePowerOptions.forEach { option ->
+            Text("Bluetooth Power", style = MaterialTheme.typography.titleMedium)
+            bleOptionPowerOptions.forEach { option ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
-                        selected = advertisePower == option.first,
-                        onClick = { onAdvertisePowerChange(option.first) },
+                        selected = bleOptionPower == option.first,
+                        onClick = { onbleOptionPowerChange(option.first) },
                         enabled = !isRunning)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(option.second)

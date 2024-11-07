@@ -1,5 +1,5 @@
 package com.gh182.blelocation
-
+import android.bluetooth.le.ScanSettings
 import android.Manifest
 import android.app.PendingIntent
 import android.app.Service
@@ -38,24 +38,37 @@ class BLEReceivingService : Service() {
             stopSelf()
             return
         }
+
         createNotificationChannel()
-        startForeground(1, createNotification("Waiting for BLE Locations..."))
-        startScanning()
+        startForeground(notificationId, createNotification("Waiting for BLE Locations..."))
+        }
+
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Retrieve bleOptionMode from the intent if it exists
+        val bleOptionMode = intent?.getIntExtra("bleOptionMode", ScanSettings.SCAN_MODE_BALANCED)
+            ?: ScanSettings.SCAN_MODE_BALANCED  // Default to balanced mode
+        Log.d("BLEReceivingService", "Received bleOptionMode: $bleOptionMode")
+
+        startScanning(bleOptionMode)  // Start scanning with the retrieved bleOptionMode
+        return START_STICKY
     }
 
-    private fun startScanning() {
+    private fun startScanning(bleOptionMode: Int) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
             Log.e("BLEReceivingService", "Missing BLUETOOTH_SCAN permission")
             stopSelf()
             return
         }
 
-        bleScanner.startScan(scanCallback)
+        // Create scan settings to adjust the power mode
+        val scanSettings = ScanSettings.Builder()
+            .setScanMode(bleOptionMode)
+            .build()
+
+        bleScanner.startScan(null, scanSettings, scanCallback)
         Log.d("BLEReceivingService", "Started scanning for BLE devices.")
     }
-
-
-
 
 
 
