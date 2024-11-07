@@ -179,8 +179,6 @@ class BLESendingService : Service() {
                 bleAdvertiser.startAdvertising(settings, advertiseData, advertiseCallback)
 
                 // Update notification with new location
-                //updateNotification("Broadcasting location: (${location.latitude}, ${location.longitude}\n${location.altitude}m (${location.accuracy}m)")
-
                 updateNotification(String.format(
                     Locale.getDefault(),
                     "Location: %.6f, %.6f\nAltitude: %.3fm, Accuracy: %.3fm",
@@ -235,8 +233,11 @@ class BLESendingService : Service() {
                     return
                 }
                 bleAdvertiser.startAdvertising(settings, advertiseData, advertiseCallback)
-                updateNotification("Broadcasting location: (${location.latitude}, ${location.longitude}\n${location.altitude}m (${location.accuracy}m)")
-
+                updateNotification(String.format(
+                    Locale.getDefault(),
+                    "Location: %.6f, %.6f\nAltitude: %.3fm, Accuracy: %.3fm",
+                    location.latitude, location.longitude, location.altitude, location.accuracy
+                ))
                 currentAdvertisingJob?.let { mainHandler.removeCallbacks(it) }
                 currentAdvertisingJob = Runnable {
                     Log.d(TAG, "Stopping advertising after $updateInterval ms")
