@@ -1,6 +1,8 @@
-<img src="https://github.com/user-attachments/assets/b2af7523-fc66-40c4-b3ba-3aaf8e3dc783" height="90px">
+<div style ="display: flex; justify-content: center; flex-direction: column">
+<a href="https://github.com/Gh182/BLELocation/releases/latest"><img src="https://github.com/user-attachments/assets/b2af7523-fc66-40c4-b3ba-3aaf8e3dc783" height="90px"></a>
 
-[![Github All Releases](https://img.shields.io/github/downloads/Gh182/BLELocationShareApp/total.svg)]()
+<a  href="https://github.com/Gh182/BLELocation/releases/latest"><img src="https://img.shields.io/github/downloads/Gh182/BLELocationShareApp/total.svg"></a>
+</div>
 
 # Why?
 Boox made the Tab Ultra C Pro without GNSS module, so here it is an app to send location from another device through BLE and use it as mock location.
