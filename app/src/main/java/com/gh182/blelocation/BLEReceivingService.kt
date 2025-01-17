@@ -117,6 +117,7 @@ class BLEReceivingService : Service() {
         } catch (e: IllegalArgumentException) {
             // Ignore if the provider doesn't exist
             Log.d("BLEReceivingService", "No existing test provider to remove")
+            Log.e("BLEReceivingService", "Failed to remove existing test provider: ${e.message}")
         }
 
         try {
