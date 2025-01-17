@@ -1,26 +1,20 @@
 package com.gh182.blelocation
 
-import android.app.PendingIntent
-import android.content.Intent
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.bluetooth.BluetoothManager
-import android.bluetooth.le.AdvertiseCallback
-import android.bluetooth.le.AdvertiseData
-import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.BluetoothLeAdvertiser
+import android.bluetooth.le.*
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
 import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import java.nio.ByteBuffer
-import android.Manifest
-import android.location.Location
-import android.os.ParcelUuid
-import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.*
+import java.nio.ByteBuffer
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -28,7 +22,7 @@ private const val TAG = "BLEAdvertisingService"
 private const val NOTIFICATION_CHANNEL_ID = "ble_advertising_channel"
 private const val NOTIFICATION_ID = 1
 private const val SERVICE_UUID = "0000180F-0000-1000-8000-00805F9B34FB"
-private const val DEFAULT_UPDATE_INTERVAL = 10000
+private const val DEFAULT_UPDATE_INTERVAL = 10000L
 
 class BLESendingService : Service() {
     private lateinit var bleAdvertiser: BluetoothLeAdvertiser
@@ -38,8 +32,7 @@ class BLESendingService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var currentAdvertisingJob: Runnable? = null
     private var currentLocation: Location? = null
-    private val advertisingLock = Object()
-
+    private val advertisingLock = Any()
 
     override fun onCreate() {
         super.onCreate()
@@ -65,7 +58,7 @@ class BLESendingService : Service() {
     }
 
     private fun checkRequiredPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             listOf(
                 Manifest.permission.BLUETOOTH_ADVERTISE,
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -74,9 +67,7 @@ class BLESendingService : Service() {
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_BACKGROUND_LOCATION,
                 Manifest.permission.POST_NOTIFICATIONS
-            ).all {
-                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-            }
+            )
         } else {
             listOf(
                 Manifest.permission.BLUETOOTH_ADVERTISE,
@@ -85,16 +76,16 @@ class BLESendingService : Service() {
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_BACKGROUND_LOCATION
-            ).all {
-                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-            }
+            )
+        }
+        return permissions.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val customLocationEnabled = intent?.getBooleanExtra("customLocationEnabled", false) == true
-        // use the frequency from the intent if provided, otherwise use the default
-        val updateInterval = intent?.getIntExtra("frequency", DEFAULT_UPDATE_INTERVAL)
+        val updateInterval = intent?.getLongExtra("frequency", DEFAULT_UPDATE_INTERVAL)
             ?: DEFAULT_UPDATE_INTERVAL
         val bleOptionPower = intent?.getIntExtra("bleOptionPower", 0) ?: 0
         val bleOptionMode = intent?.getIntExtra("bleOptionMode", 0) ?: 0
@@ -102,9 +93,9 @@ class BLESendingService : Service() {
         Log.d(TAG, "bleOptionPower=$bleOptionPower, bleOptionMode=$bleOptionMode")
 
         if (customLocationEnabled) {
-            handleCustomLocation(intent, updateInterval.toLong(), bleOptionPower, bleOptionMode)
+            handleCustomLocation(intent, updateInterval, bleOptionPower, bleOptionMode)
         } else {
-            startLocationUpdates(updateInterval.toLong(), bleOptionPower, bleOptionMode)
+            startLocationUpdates(updateInterval, bleOptionPower, bleOptionMode)
         }
 
         return START_STICKY
@@ -129,11 +120,9 @@ class BLESendingService : Service() {
                     Log.d(TAG, "New Location: ${location.latitude}, ${location.longitude}")
                     synchronized(advertisingLock) {
                         currentLocation = location
-                        // Only start a new advertising cycle if we're not currently advertising
                         if (!isAdvertising.get()) {
                             advertiseLocation(location, updateInterval, bleOptionPower, bleOptionMode)
                         } else {
-                            // Update the current advertising with new location
                             updateAdvertising(location, updateInterval, bleOptionPower, bleOptionMode)
                         }
                     }
@@ -144,66 +133,40 @@ class BLESendingService : Service() {
                 .setMinUpdateIntervalMillis(updateInterval)
                 .build()
 
-            if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 Log.e(TAG, "Missing location permissions")
                 return
             }
-            fusedLocationClient.requestLocationUpdates(
-                request,
-                callback,
-                Looper.getMainLooper()
-            )
+            fusedLocationClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
         }
     }
 
     private fun updateAdvertising(location: Location, updateInterval: Long, bleOptionPower: Int, bleOptionMode: Int) {
         Log.d(TAG, "Updating advertising with new location")
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_ADVERTISE
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
             Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission")
             return
         }
 
         synchronized(advertisingLock) {
             try {
-                // Stop current advertising
                 bleAdvertiser.stopAdvertising(advertiseCallback)
-
-                // Start advertising with new location
                 val advertiseData = createAdvertiseData(location)
-
-                 // PowerHigh: 3, PowerMedium: 2, PowerLow: 1, PowerUltraLow: 0
-                // ModeLowLatency: 2, ModeBalanced: 1, ModeLowPower: 0
-
-
                 val settings = createAdvertiseSettings(bleOptionPower, bleOptionMode)
-
-
-
-
                 bleAdvertiser.startAdvertising(settings, advertiseData, advertiseCallback)
 
-                // Update notification with new location
                 updateNotification(String.format(
                     Locale.getDefault(),
                     "Location: %.6f, %.6f\nAltitude: %.3fm, Accuracy: %.3fm",
                     location.latitude, location.longitude, location.altitude, location.accuracy
                 ))
-                // Reset timer for next update
+
                 currentAdvertisingJob?.let { mainHandler.removeCallbacks(it) }
                 currentAdvertisingJob = Runnable {
                     Log.d(TAG, "Stopping advertising after $updateInterval ms")
                     synchronized(advertisingLock) {
                         stopCurrentAdvertising()
                         isAdvertising.set(false)
-                        // Use the most recent location when restarting
                         currentLocation?.let { latest ->
                             advertiseLocation(latest, updateInterval, bleOptionPower, bleOptionMode)
                         }
@@ -214,7 +177,6 @@ class BLESendingService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update advertising", e)
-                // In case of failure, stop current advertising and restart
                 stopCurrentAdvertising()
                 isAdvertising.set(false)
                 currentLocation?.let { latest ->
@@ -236,11 +198,7 @@ class BLESendingService : Service() {
             val settings = createAdvertiseSettings(bleOptionPower, bleOptionMode)
 
             try {
-                if (ActivityCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.BLUETOOTH_ADVERTISE
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
                     Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission")
                     return
                 }
@@ -256,7 +214,6 @@ class BLESendingService : Service() {
                     synchronized(advertisingLock) {
                         stopCurrentAdvertising()
                         isAdvertising.set(false)
-                        // Use the most recent location when restarting
                         currentLocation?.let { latest ->
                             advertiseLocation(latest, updateInterval, bleOptionPower, bleOptionMode)
                         }
@@ -286,10 +243,8 @@ class BLESendingService : Service() {
             .build()
     }
 
-    private fun createAdvertiseSettings( bleOptionPower: Int, bleOptionMode: Int) = AdvertiseSettings.Builder()
-        // AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+    private fun createAdvertiseSettings(bleOptionPower: Int, bleOptionMode: Int) = AdvertiseSettings.Builder()
         .setAdvertiseMode(bleOptionMode)
-        // AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW
         .setTxPowerLevel(bleOptionPower)
         .setConnectable(true)
         .build()
@@ -308,12 +263,7 @@ class BLESendingService : Service() {
 
     private fun stopCurrentAdvertising() {
         try {
-
-            if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.BLUETOOTH_ADVERTISE
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
                 Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission")
                 return
             }
@@ -330,36 +280,18 @@ class BLESendingService : Service() {
             "BLE Advertising Service",
             NotificationManager.IMPORTANCE_DEFAULT
         )
-        getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(channel)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun updateNotification(content: String) {
-        // Create an intent to open the app
-        val intent = Intent(this, MainActivity::class.java).apply {
-            // This will bring the existing instance of the activity to the foreground if it exists
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-
-        // Create a PendingIntent to wrap the intent
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Build the notification with the pending intent
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("BLE Advertising")
             .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-//            .setContentIntent(pendingIntent)  // Set the intent that will fire when the user taps the notification
-            .setAutoCancel(true)  // Remove notification when tapped
+            .setAutoCancel(true)
             .build()
 
-        getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, notification)
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
     }
 
     override fun onDestroy() {
